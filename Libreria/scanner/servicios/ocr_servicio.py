@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -118,3 +119,48 @@ def unir_paginas(textos: list[str]) -> str:
         cuerpo = (texto or "").strip()
         bloques.append(f"--- Página {i} ---\n{cuerpo}".rstrip())
     return "\n\n".join(bloques) + "\n"
+
+
+_PAGINA_SEP = re.compile(
+    r"^---\s*P[aá]gina\s+(\d+)\s*---\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def partir_texto_por_paginas(texto: str, total: int | None = None) -> list[str]:
+    """
+    Parte un texto con marcadores --- Página N --- en una lista (índice 0 = pág 1).
+    Si no hay marcadores, devuelve [texto] (o lista vacía rellena hasta total).
+    """
+    bruto = texto or ""
+    matches = list(_PAGINA_SEP.finditer(bruto))
+    if not matches:
+        if total and total > 1:
+            out = [""] * total
+            out[0] = bruto.strip()
+            return out
+        return [bruto.strip()] if bruto.strip() else ([""] * (total or 1))
+
+    por_num: dict[int, str] = {}
+    for i, m in enumerate(matches):
+        num = int(m.group(1))
+        inicio = m.end()
+        fin = matches[i + 1].start() if i + 1 < len(matches) else len(bruto)
+        por_num[num] = bruto[inicio:fin].strip()
+
+    max_n = max(por_num)
+    if total is not None:
+        max_n = max(max_n, total)
+    return [por_num.get(i, "") for i in range(1, max_n + 1)]
+
+
+def detectar_indice_pagina_archivo(ruta: Path) -> int | None:
+    """Si el nombre es pagina_003... → índice 0-based 2."""
+    m = re.match(r"^pagina_(\d+)", ruta.stem, re.IGNORECASE)
+    if not m:
+        return None
+    return max(0, int(m.group(1)) - 1)
+
+
+def tiene_marcadores_pagina(texto: str) -> bool:
+    return bool(_PAGINA_SEP.search(texto or ""))

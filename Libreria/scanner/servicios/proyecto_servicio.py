@@ -87,6 +87,34 @@ def guardar_ocr_pagina(
     return raw_path, txt_path
 
 
+def cargar_textos_ocr_dir(
+    documento: Path,
+    total: int | None = None,
+    config: dict | None = None,
+) -> list[str]:
+    """Carga pagina_XXX.txt (no .raw) de ocr/ en orden. Rellena hasta total si se indica."""
+    ocr_dir = carpeta_ocr(documento, config)
+    por_idx: dict[int, str] = {}
+    if ocr_dir.is_dir():
+        for archivo in ocr_dir.glob("pagina_*.txt"):
+            if archivo.name.endswith(".raw.txt"):
+                continue
+            m = re.match(r"^pagina_(\d+)\.txt$", archivo.name, re.IGNORECASE)
+            if not m:
+                continue
+            idx = int(m.group(1)) - 1
+            if idx < 0:
+                continue
+            por_idx[idx] = archivo.read_text(encoding="utf-8").strip()
+
+    if not por_idx and not total:
+        return []
+    n = max(por_idx.keys(), default=-1) + 1
+    if total is not None:
+        n = max(n, total)
+    return [por_idx.get(i, "") for i in range(n)]
+
+
 def siguiente_version(documento: Path, nombre_base: str, config: dict | None = None) -> int:
     """Devuelve el siguiente número de versión libre para un nombre base."""
     seguro = sanitizar_nombre(nombre_base)

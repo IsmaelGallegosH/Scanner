@@ -40,10 +40,17 @@ from scanner.servicios.aprendizaje_servicio import (
 )
 from scanner.servicios.imagen_servicio import rotar_imagen
 from scanner.servicios.latex_servicio import LatexError, generar_tex
-from scanner.servicios.ocr_servicio import ocr_a_texto_procesado, unir_paginas
+from scanner.servicios.ocr_servicio import (
+    detectar_indice_pagina_archivo,
+    ocr_a_texto_procesado,
+    partir_texto_por_paginas,
+    tiene_marcadores_pagina,
+    unir_paginas,
+)
 from scanner.servicios.pdf_servicio import contar_paginas, renderizar_pagina
 from scanner.servicios.proyecto_servicio import (
     carpeta_proyecto,
+    cargar_textos_ocr_dir,
     documento_desde_ruta_procesada,
     guardar_ocr_pagina,
     ruta_ocr_pagina,
@@ -227,6 +234,9 @@ class VentanaScanner(QMainWindow):
         self.zoom = 1.0
         self.modo_ajustar = True
         self.texto_fuente_path: Path | None = None
+        self._pendiente_textos: list[str] | None = None
+        self._pendiente_pagina: int = 0
+        self._btn_ollama = None
 
         self.setWindowTitle("Scanner — Escaneo y reescritura")
         self.resize(1180, 720)
@@ -311,8 +321,11 @@ class VentanaScanner(QMainWindow):
         self.act_abrir.triggered.connect(self.abrir_archivo)
         barra.addAction(self.act_abrir)
 
-        self.act_abrir_texto = QAction("Abrir texto", self)
+        self.act_abrir_texto = QAction("Abrir texto / continuar", self)
         self.act_abrir_texto.triggered.connect(self.abrir_texto_procesado)
+        self.act_abrir_texto.setToolTip(
+            "Abre un .txt de salida/ y, si existe, el PDF del mismo libro para seguir corrigiendo."
+        )
         barra.addAction(self.act_abrir_texto)
 
         self.act_ocr = QAction("OCR página", self)
@@ -344,6 +357,9 @@ class VentanaScanner(QMainWindow):
         )
         self.act_ollama.toggled.connect(self._al_toggle_ollama)
         barra.addAction(self.act_ollama)
+        self._toolbar = barra
+        self._btn_ollama = barra.widgetForAction(self.act_ollama)
+        self._aplicar_estilo_ollama()
 
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs, stretch=1)
@@ -473,12 +489,36 @@ class VentanaScanner(QMainWindow):
             self.act_ollama.blockSignals(True)
             self.act_ollama.setChecked(activo)
             self.act_ollama.blockSignals(False)
+        self._aplicar_estilo_ollama()
         if activo:
             daemon = "daemon OK" if ollama_daemon_ok(self.cfg) else "daemon OFF"
             self.statusBar().showMessage(f"Ollama ON ({modelo}, {daemon})")
+
+    def _aplicar_estilo_ollama(self) -> None:
+        btn = self._btn_ollama
+        if btn is None and hasattr(self, "_toolbar") and hasattr(self, "act_ollama"):
+            btn = self._toolbar.widgetForAction(self.act_ollama)
+            self._btn_ollama = btn
+        if btn is None:
+            return
+        on = bool(self.act_ollama.isChecked())
+        if on:
+            btn.setStyleSheet(
+                "QToolButton {"
+                " background:#3d9b6a; color:#ffffff; border:none;"
+                " border-radius:6px; padding:8px 14px; font-weight:700;"
+                "}"
+                "QToolButton:hover { background:#48b07a; }"
+                "QToolButton:checked { background:#3d9b6a; }"
+            )
         else:
-            # No pisar mensajes de trabajo si solo sincronizamos al arrancar
-            pass
+            btn.setStyleSheet(
+                "QToolButton {"
+                " background:#3a434c; color:#e8e4dc; border:none;"
+                " border-radius:6px; padding:8px 14px; font-weight:600;"
+                "}"
+                "QToolButton:hover { background:#4a535c; }"
+            )
 
     def _al_toggle_ollama(self, checked: bool) -> None:
         if checked and not ollama_daemon_ok(self.cfg):
@@ -494,6 +534,7 @@ class VentanaScanner(QMainWindow):
             self.act_ollama.blockSignals(True)
             self.act_ollama.setChecked(False)
             self.act_ollama.blockSignals(False)
+            self._aplicar_estilo_ollama()
             return
 
         try:
@@ -503,8 +544,10 @@ class VentanaScanner(QMainWindow):
             self.act_ollama.blockSignals(True)
             self.act_ollama.setChecked(ollama_habilitado_en_config(load_config()))
             self.act_ollama.blockSignals(False)
+            self._aplicar_estilo_ollama()
             return
 
+        self._aplicar_estilo_ollama()
         modelo = ollama_modelo(self.cfg)
         if checked:
             self._estado(f"Ollama ON ({modelo})")
@@ -599,7 +642,7 @@ class VentanaScanner(QMainWindow):
         inicio = str(self.rutas["salida"])
         ruta, _ = QFileDialog.getOpenFileName(
             self,
-            "Abrir texto procesado",
+            "Abrir texto / continuar trabajo",
             inicio,
             "Textos (*.txt);;Todos (*.*)",
         )
@@ -609,30 +652,73 @@ class VentanaScanner(QMainWindow):
         try:
             documento = documento_desde_ruta_procesada(txt)
         except ValueError:
-            documento = Path(f"/scanner/documentos/{txt.stem}.pdf")
+            documento = Path(f"/scanner/documentos/{txt.parent.name}.pdf")
+
         contenido = txt.read_text(encoding="utf-8")
+        textos_ocr = cargar_textos_ocr_dir(documento)
+        idx_archivo = detectar_indice_pagina_archivo(txt)
+
+        if tiene_marcadores_pagina(contenido):
+            textos = partir_texto_por_paginas(
+                contenido, total=len(textos_ocr) or None
+            )
+        elif idx_archivo is not None:
+            textos = list(textos_ocr) if textos_ocr else []
+            while len(textos) <= idx_archivo:
+                textos.append("")
+            textos[idx_archivo] = contenido.strip()
+        elif textos_ocr:
+            textos = textos_ocr
+        else:
+            textos = [contenido.strip()]
+
+        pagina_ini = idx_archivo if idx_archivo is not None else 0
+        pdf_ok = documento.suffix.lower() == ".pdf" and documento.is_file()
+
+        self.texto_fuente_path = txt
+        self.tabs.setCurrentIndex(0)
+
+        if pdf_ok:
+            self._pendiente_textos = textos
+            self._pendiente_pagina = pagina_ini
+            self._cargar_documento(documento)
+            self._estado(
+                f"Continuando: {txt.name} + PDF {documento.name}"
+            )
+            return
+
+        # Sin PDF: solo texto (aviso)
         self.documento = documento
         self.proyecto_dir = carpeta_proyecto(documento)
-        self.texto_fuente_path = txt
-        self.es_pdf = documento.suffix.lower() == ".pdf" and documento.is_file()
-        self.total_paginas = 1
-        self.pagina_actual = 0
-        self.textos_paginas = [contenido]
+        self.es_pdf = False
+        self.total_paginas = max(1, len(textos))
+        self.pagina_actual = min(pagina_ini, self.total_paginas - 1)
+        self.textos_paginas = list(textos)
+        if len(self.textos_paginas) < self.total_paginas:
+            self.textos_paginas.extend(
+                [""] * (self.total_paginas - len(self.textos_paginas))
+            )
         self.imagen_pagina = None
         self.pixmap_original = None
-        self.vista.setText(f"Texto: {txt.name}\n(sin vista de imagen)")
+        self.vista.setText(
+            f"Texto: {txt.name}\n"
+            f"(No se encontró PDF en entrada/ para este libro)"
+        )
         self.vista.setPixmap(QPixmap())
         self._mostrar_texto_pagina()
         self._actualizar_nav()
         self.act_ocr.setEnabled(False)
         self.act_ocr_libro.setEnabled(False)
-        for b in (self.btn_rot_izq, self.btn_rot_der, self.btn_rot_180):
-            b.setEnabled(False)
         self.panel_latex.set_documento(documento)
-        self._sincronizar_latex_desde_editor(forzar=True, compilar=False)
-        self.tabs.setCurrentIndex(1)
-        self.panel_latex.compilar()
-        self._estado(f"Texto abierto: {txt.name} → LaTeX en proyecto {self.proyecto_dir.name}")
+        self._ocupado(False)
+        QMessageBox.information(
+            self,
+            "Sin PDF",
+            "Se cargó el texto, pero no hay PDF en Libreria/entrada/\n"
+            f"para «{documento.stem}».\n\n"
+            "Copia el PDF ahí con el mismo nombre del libro para ver la imagen guía.",
+        )
+        self._estado(f"Texto abierto sin PDF: {txt.name}")
 
     def _al_cambiar_texto(self) -> None:
         if self._silenciar_editor:
@@ -758,6 +844,9 @@ class VentanaScanner(QMainWindow):
         self.pagina_actual = 0
         self.proyecto_dir = carpeta_proyecto(ruta)
         self.modo_ajustar = True
+        # Si no venimos de «Abrir texto / continuar», limpiar pendientes
+        if self._pendiente_textos is None:
+            self.texto_fuente_path = None
 
         if self.es_pdf:
             self._ocupado(True)
@@ -781,29 +870,57 @@ class VentanaScanner(QMainWindow):
         self._actualizar_nav()
         self.act_ocr.setEnabled(True)
         self.act_ocr_libro.setEnabled(False)
-        self.texto_fuente_path = None
         self.panel_latex.set_documento(ruta)
         self._ocupado(False)
         self._estado(f"Documento: {ruta.name} → {self.proyecto_dir}")
 
     def _abrir_pdf_ok(self, total: int, imagen: object) -> None:
         self.total_paginas = total
-        self.textos_paginas = [""] * total
+        fuente_txt = self.texto_fuente_path
+        if self._pendiente_textos is not None:
+            pend = list(self._pendiente_textos)
+            if len(pend) < total:
+                pend.extend([""] * (total - len(pend)))
+            elif len(pend) > total:
+                pend = pend[:total]
+            self.textos_paginas = pend
+            self.pagina_actual = max(0, min(self._pendiente_pagina, total - 1))
+            self._pendiente_textos = None
+            self._pendiente_pagina = 0
+        else:
+            self.textos_paginas = [""] * total
+            self.pagina_actual = 0
+            self.texto_fuente_path = None
+
         self.imagen_pagina = Path(imagen)
+        # Si la página pendiente no es la 1, renderizar esa página
+        if self.pagina_actual > 0 and self.documento:
+            try:
+                self.imagen_pagina = Path(
+                    renderizar_pagina(self.documento, self.pagina_actual)
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
         self.modo_ajustar = True
         self._mostrar_imagen_actual()
         self._mostrar_texto_pagina()
         self._actualizar_nav()
         self.act_ocr.setEnabled(True)
         self.act_ocr_libro.setEnabled(True)
-        self.texto_fuente_path = None
+        if fuente_txt is not None:
+            self.texto_fuente_path = fuente_txt
         self.panel_latex.set_documento(self.documento)
+        self.tabs.setCurrentIndex(0)
+        extra = f" · texto {fuente_txt.name}" if fuente_txt else ""
         self._estado(
-            f"Documento: {self.documento.name} ({total} pág.) → {self.proyecto_dir}"
+            f"Documento: {self.documento.name} ({total} pág.){extra} → {self.proyecto_dir}"
         )
 
     def _abrir_pdf_error(self, mensaje: str) -> None:
         QMessageBox.critical(self, "Error al abrir", mensaje)
+        self._pendiente_textos = None
+        self._pendiente_pagina = 0
         self.documento = None
         self.proyecto_dir = None
         self.imagen_pagina = None
