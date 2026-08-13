@@ -16,6 +16,18 @@ Libreria/entrada/*
 Libreria/salida/*
 !Libreria/salida/.gitkeep
 
+# Textos OCR, reescritos y versiones (por si aparecen fuera de salida/)
+*.txt
+!Sistema/requirements.txt
+!**/.gitkeep
+*.raw.txt
+reescrito.txt
+pagina_*.txt
+*_v*.txt
+*_v*.tex
+*_v*.pdf
+*_ocr.txt
+
 # Modelos OCR descargados y aprendizaje local
 Sistema/modelos/*
 !Sistema/modelos/.gitkeep
