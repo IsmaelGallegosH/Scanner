@@ -1,0 +1,29 @@
+% Plantilla genérica Scanner (español)
+% Sustituye el marcador CONTENIDO (doble guion bajo a cada lado) en el cuerpo.
+\documentclass[11pt,a5paper,openany]{book}
+\usepackage[margin=2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setmainlanguage{spanish}
+\setmainfont{DejaVu Serif}
+\setsansfont{DejaVu Sans}
+\usepackage{microtype}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+
+\title{__TITULO__}
+\author{Scanner}
+\date{}
+
+\begin{document}
+\maketitle
+\setcounter{secnumdepth}{-1}
+
+__CONTENIDO__
+
+\end{document}

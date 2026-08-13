@@ -1,0 +1,64 @@
+# Configuración del sistema Scanner (PaddleOCR)
+# Las rutas relativas se resuelven respecto a la raíz del proyecto.
+
+proyecto:
+  nombre: Scanner
+  descripcion: Escaneo y reescritura de libros (proyecto universitario)
+  rutas:
+    raiz: .
+    sistema: Sistema
+    libreria: Libreria
+    entrada: Libreria/entrada
+    salida: Libreria/salida
+    modelos: Sistema/modelos
+
+ocr:
+  # CPU: AMD Radeon no acelera PaddleOCR (requiere CUDA NVIDIA)
+  dispositivo: cpu
+  # Modelo de reconocimiento en español (crítico para tus libros)
+  idioma: es
+  # Orientación / enderezado: útil en escaneos de libro abierto
+  use_doc_orientation_classify: true
+  use_doc_unwarping: true
+  use_textline_orientation: true
+  # Detección: umbrales más permisivos ayudan tipografía antigua / tinta irregular
+  text_det_thresh: 0.3
+  text_det_box_thresh: 0.55
+  text_det_unclip_ratio: 1.8
+  # Lado máximo de detección (más alto = más detalle, más lento en CPU)
+  text_det_limit_side_len: 1280
+  text_det_limit_type: max
+  # Descartar reconocimientos muy dudosos
+  text_rec_score_thresh: 0.4
+
+pdf:
+  # 250 DPI: mejor para español con acentos (á, é, ñ) en escaneos viejos
+  dpi: 250
+
+latex:
+  # auto: usa Sistema/plantillas/libro.tex si existe; si no, libro_generico
+  plantilla: auto
+  # auto: xelatex si está instalado; si no, pdflatex
+  motor: auto
+  timeout_seg: 120
+
+# Aprendizaje desde correcciones humanas (OCR → texto corregido)
+aprendizaje:
+  habilitado: true
+  # Mínimo de veces que debe verse una sustitución para aplicarla
+  min_count: 2
+  ollama:
+    # Post-corrección LLM local (opcional). Requiere Ollama en marcha.
+    enabled: false
+    modelo: qwen2.5:3b
+    url: http://127.0.0.1:11434
+    max_ejemplos_fewshot: 5
+    timeout_seg: 60
+
+paddle:
+  version_esperada: "3.2.0"
+  paddleocr_version_esperada: "3.7.0"
+
+entorno:
+  venv: Sistema/.venv
+  requirements: Sistema/requirements.txt

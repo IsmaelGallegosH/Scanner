@@ -1,0 +1,45 @@
+# Entorno Python
+Sistema/.venv/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Datos de entrada / salida (PDFs y OCR) — no versionar
+Libreria/entrada/*
+!Libreria/entrada/.gitkeep
+Libreria/salida/*
+!Libreria/salida/.gitkeep
+
+# Modelos OCR descargados y aprendizaje local
+Sistema/modelos/*
+!Sistema/modelos/.gitkeep
+Sistema/aprendizaje/*
+!Sistema/aprendizaje/.gitkeep
+
+# Logs y temporales
+*.log
+Sistema/scanner_ui.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.code-workspace
+
+# LaTeX auxiliar
+*.aux
+*.out
+*.toc
+*.synctex.gz
+
+# Desktop launchers locales
+*.desktop
