@@ -63,3 +63,53 @@ python -m scanner.cli.aprender_compilar
 ## Nota sobre datos
 
 Este repositorio **no incluye** PDFs de entrada ni resultados escaneados. Solo el código y la configuración.
+
+## Ollama (post-corrección LLM)
+
+Ollama es un motor local de modelos de IA. En Scanner se usa **después** del OCR y de las reglas aprendidas para corregir más errores de reconocimiento.
+
+### Instalación del servicio
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen2.5:3b
+# comprobar
+curl -s http://127.0.0.1:11434/api/tags
+```
+
+### Botón en la interfaz
+
+En la barra de herramientas hay un botón conmutable **Ollama**:
+
+| Estado | Efecto |
+|--------|--------|
+| OFF (por defecto) | Solo PaddleOCR + reglas aprendidas. Más rápido. |
+| ON | Tras cada OCR página/libro, llama a `qwen2.5:3b` (puede tardar en CPU). |
+
+Si activas el botón y el daemon no responde, la app avisa y lo deja en OFF.
+
+El flag se guarda en `Sistema/config.yaml` → `aprendizaje.ollama.enabled`.
+
+### Flujo al hacer OCR con Ollama ON
+
+1. Paddle genera el texto bruto → `pagina_XXX.raw.txt`.
+2. Se aplican las **reglas** aprendidas de tus correcciones.
+3. Ollama recibe ese texto (+ pocos ejemplos few-shot de tus pares) y devuelve una corrección.
+4. El resultado se muestra en el editor y en `pagina_XXX.txt`.
+5. Al **Guardar** con aprendizaje, se sigue comparando contra el `.raw.txt` (las reglas mejoran igual).
+
+### Qué no hace Ollama aquí
+
+- No sustituye el checkbox *Usar como ejemplo de aprendizaje*.
+- No aprende del `.tex`.
+- No reentrena PaddleOCR.
+- Si el servicio cae con el botón ON, el OCR continúa solo con reglas.
+
+### Comprobar
+
+```bash
+export PYTHONPATH=Libreria:Sistema
+python -m scanner.cli.aprender_estado
+```
+
+Debes ver `"ollama": { "enabled": true, "daemon_ok": true, "disponible": true }`.

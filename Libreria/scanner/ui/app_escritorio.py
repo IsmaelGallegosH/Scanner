@@ -28,11 +28,14 @@ from PySide6.QtWidgets import (
     QFrame,
 )
 
-from config_loader import get_paths, load_config
+from config_loader import get_paths, load_config, set_ollama_enabled
 from scanner.servicios.aprendizaje_servicio import (
     aprendizaje_habilitado,
     leer_ocr_crudo,
     leer_ocr_crudo_libro,
+    ollama_daemon_ok,
+    ollama_habilitado_en_config,
+    ollama_modelo,
     registrar_correccion,
 )
 from scanner.servicios.imagen_servicio import rotar_imagen
@@ -232,6 +235,7 @@ class VentanaScanner(QMainWindow):
         self._aplicar_estilo()
         self._construir_ui()
         self._actualizar_nav()
+        self._actualizar_estado_ollama()
         self._estado("Listo. Abre un PDF o una imagen escaneada.")
 
     def _aplicar_estilo(self) -> None:
@@ -330,6 +334,16 @@ class VentanaScanner(QMainWindow):
         self.act_guardar_libro.triggered.connect(self.guardar_libro)
         self.act_guardar_libro.setEnabled(False)
         barra.addAction(self.act_guardar_libro)
+
+        barra.addSeparator()
+        self.act_ollama = QAction("Ollama", self)
+        self.act_ollama.setCheckable(True)
+        self.act_ollama.setChecked(ollama_habilitado_en_config(self.cfg))
+        self.act_ollama.setToolTip(
+            "Post-corrección LLM tras OCR (local). Requiere Ollama en marcha."
+        )
+        self.act_ollama.toggled.connect(self._al_toggle_ollama)
+        barra.addAction(self.act_ollama)
 
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs, stretch=1)
@@ -451,6 +465,51 @@ class VentanaScanner(QMainWindow):
 
     def _estado(self, mensaje: str) -> None:
         self.statusBar().showMessage(mensaje)
+
+    def _actualizar_estado_ollama(self) -> None:
+        activo = ollama_habilitado_en_config(self.cfg)
+        modelo = ollama_modelo(self.cfg)
+        if hasattr(self, "act_ollama"):
+            self.act_ollama.blockSignals(True)
+            self.act_ollama.setChecked(activo)
+            self.act_ollama.blockSignals(False)
+        if activo:
+            daemon = "daemon OK" if ollama_daemon_ok(self.cfg) else "daemon OFF"
+            self.statusBar().showMessage(f"Ollama ON ({modelo}, {daemon})")
+        else:
+            # No pisar mensajes de trabajo si solo sincronizamos al arrancar
+            pass
+
+    def _al_toggle_ollama(self, checked: bool) -> None:
+        if checked and not ollama_daemon_ok(self.cfg):
+            QMessageBox.warning(
+                self,
+                "Ollama no disponible",
+                "No responde el servicio en http://127.0.0.1:11434.\n\n"
+                "Instala Ollama, ejecuta:\n"
+                "  ollama pull qwen2.5:3b\n"
+                "y asegúrate de que el servicio esté activo.\n\n"
+                "El botón se desactivará.",
+            )
+            self.act_ollama.blockSignals(True)
+            self.act_ollama.setChecked(False)
+            self.act_ollama.blockSignals(False)
+            return
+
+        try:
+            self.cfg = set_ollama_enabled(checked)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Config", f"No se pudo guardar config.yaml:\n{exc}")
+            self.act_ollama.blockSignals(True)
+            self.act_ollama.setChecked(ollama_habilitado_en_config(load_config()))
+            self.act_ollama.blockSignals(False)
+            return
+
+        modelo = ollama_modelo(self.cfg)
+        if checked:
+            self._estado(f"Ollama ON ({modelo})")
+        else:
+            self._estado("Ollama OFF")
 
     def _mostrar_carga(self, titulo: str, detalle: str = "", total: int = 0) -> None:
         if self.carga is None:

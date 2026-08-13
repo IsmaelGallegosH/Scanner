@@ -323,11 +323,10 @@ def _ejemplos_fewshot(texto: str, max_n: int, config: dict | None = None) -> lis
     return out
 
 
-def ollama_disponible(config: dict | None = None) -> bool:
+def ollama_daemon_ok(config: dict | None = None) -> bool:
+    """True si el daemon Ollama responde (ignora el flag enabled)."""
     apr = _cfg_aprendizaje(config)
     ollama = apr.get("ollama") or {}
-    if not ollama.get("enabled", False):
-        return False
     url = str(ollama.get("url", "http://127.0.0.1:11434")).rstrip("/")
     try:
         req = urllib.request.Request(f"{url}/api/tags", method="GET")
@@ -335,6 +334,25 @@ def ollama_disponible(config: dict | None = None) -> bool:
             return 200 <= resp.status < 300
     except (urllib.error.URLError, TimeoutError, OSError):
         return False
+
+
+def ollama_habilitado_en_config(config: dict | None = None) -> bool:
+    apr = _cfg_aprendizaje(config)
+    ollama = apr.get("ollama") or {}
+    return bool(ollama.get("enabled", False))
+
+
+def ollama_modelo(config: dict | None = None) -> str:
+    apr = _cfg_aprendizaje(config)
+    ollama = apr.get("ollama") or {}
+    return str(ollama.get("modelo", "qwen2.5:3b"))
+
+
+def ollama_disponible(config: dict | None = None) -> bool:
+    """True si está enabled en config y el daemon responde."""
+    if not ollama_habilitado_en_config(config):
+        return False
+    return ollama_daemon_ok(config)
 
 
 def sugerir_con_ollama(texto: str, config: dict | None = None) -> str | None:
@@ -429,6 +447,7 @@ def estado_aprendizaje(config: dict | None = None) -> dict[str, Any]:
         "ollama": {
             "enabled": bool(ollama_cfg.get("enabled", False)),
             "modelo": ollama_cfg.get("modelo"),
+            "daemon_ok": ollama_daemon_ok(cfg),
             "disponible": ollama_disponible(cfg),
         },
         "rutas": {
